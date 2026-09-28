@@ -20,6 +20,8 @@ interface FilterValue {
 interface RunForm {
   batchNo: string
   recipeId: number
+  filmId: number
+  rolls: number
   actualTempC: number
   actualMinutes: number
   tankType: TankType
@@ -52,6 +54,8 @@ const filterValue = ref<FilterValue>({
 const form = reactive<RunForm>({
   batchNo: `R-${today.replace(/-/g, '')}-01`,
   recipeId: 1,
+  filmId: 1,
+  rolls: 2,
   actualTempC: 20,
   actualMinutes: 8,
   tankType: '双联罐',
@@ -72,6 +76,7 @@ watch(selectedRecipe, (recipe) => {
   if (!recipe) return
   form.actualTempC = recipe.tempC
   form.actualMinutes = recipe.devMinutes
+  form.filmId = recipe.filmId
 }, { immediate: true })
 
 const filteredRuns = computed(() => {
@@ -81,13 +86,25 @@ const filteredRuns = computed(() => {
   return runStore.runs.filter((run) => {
     const recipe = recipeStore.recipes.find((item) => item.id === run.recipeId)
     const film = filmStore.films.find((item) => item.id === recipe?.filmId)
-    const haystack = `${run.batchNo} ${run.result} ${film?.model ?? ''}`.toLowerCase()
+    const runFilm = filmStore.films.find((item) => item.id === run.filmId)
+    const haystack = `${run.batchNo} ${run.result} ${film?.model ?? ''} ${runFilm?.emulsionNo ?? ''}`.toLowerCase()
     const matchesKeyword = !keyword || haystack.includes(keyword)
     const matchesTank = tankTypes.length === 0 || tankTypes.includes(run.tankType)
     const matchesResult = results.length === 0 || results.some((item) => run.result.includes(item))
     return matchesKeyword && matchesTank && matchesResult
   })
 })
+
+function filmOptionLabel(id: number): string {
+  const film = filmStore.films.find((item) => item.id === id)
+  if (!film) return '未登记乳剂批次'
+  return `${film.model} · ${film.format} · ${film.emulsionNo}（余量 ${film.rollsLeft} 卷）`
+}
+
+function runEmulsionLabel(run: { filmId?: number }): string {
+  const film = filmStore.films.find((item) => item.id === run.filmId)
+  return film ? film.emulsionNo : '未登记乳剂批次'
+}
 
 function recipeLabel(id: number): string {
   const recipe = recipeStore.recipes.find((item) => item.id === id)
@@ -111,30 +128,38 @@ async function submitRun(): Promise<void> {
     ElMessage.warning('请填写批次号、配方与结果评价')
     return
   }
+  if (!form.filmId) {
+    ElMessage.warning('请选择本次使用的乳剂批次')
+    return
+  }
+  if (!Number.isInteger(form.rolls) || form.rolls < 1) {
+    ElMessage.warning('实际冲洗卷数需为不小于 1 的整数')
+    return
+  }
   saving.value = true
-  const selectedDeveloper = developerStore.developers.find((item) => item.id === selectedRecipe.value?.developerId)
-  const willExceedLimit = selectedDeveloper !== undefined
-    && selectedDeveloper.state !== '报废'
-    && selectedDeveloper.usedRolls + 1 > selectedDeveloper.maxRolls
   try {
-    await runStore.addRun({
+    const { overCapacity } = await runStore.addRun({
       batchNo: form.batchNo.trim(),
       recipeId: Number(form.recipeId),
+      filmId: Number(form.filmId),
+      rolls: Number(form.rolls),
       actualTempC: Number(form.actualTempC),
       actualMinutes: Number(form.actualMinutes),
       tankType: form.tankType,
       runDate: form.runDate,
       result: form.result.trim()
     })
-    await Promise.all([developerStore.load(), recipeStore.load()])
-    if (willExceedLimit) {
-      ElMessage.warning('冲洗记录已保存，本次已超过显影液标称可冲上限，请评估后标记报废')
+    await Promise.all([filmStore.load(), developerStore.load(), recipeStore.load()])
+    if (overCapacity) {
+      ElMessage.warning(`冲洗记录已保存，胶片与显影液各计 ${form.rolls} 卷；显影液已超过标称可冲上限，请评估后标记报废`)
     } else {
-      ElMessage.success('冲洗记录已保存，显影液用量同步更新')
+      ElMessage.success(`冲洗记录已保存，胶片余量扣减 ${form.rolls} 卷，显影液用量同步增加 ${form.rolls} 卷`)
     }
     form.batchNo = `R-${today.replace(/-/g, '')}-${String(runStore.runs.length + 1).padStart(2, '0')}`
     form.result = ''
     showForm.value = false
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '保存失败，胶片与显影液数量均未变动')
   } finally {
     saving.value = false
   }
@@ -189,6 +214,18 @@ onMounted(async () => {
             </option>
           </select>
         </label>
+        <label class="span-2">
+          <span>乳剂批次</span>
+          <select v-model.number="form.filmId" data-testid="field-filmId">
+            <option v-for="film in filmStore.films" :key="film.id" :value="film.id">
+              {{ filmOptionLabel(film.id ?? 0) }}
+            </option>
+          </select>
+        </label>
+        <label>
+          <span>实际冲洗卷数</span>
+          <input v-model.number="form.rolls" data-testid="field-rolls" type="number" min="1" max="99" step="1" />
+        </label>
         <label>
           <span>实测温度</span>
           <input v-model.number="form.actualTempC" data-testid="field-actualTempC" type="number" min="10" max="50" step="0.1" />
@@ -215,7 +252,7 @@ onMounted(async () => {
         <div class="span-3 compensation-callout">
           <div>
             <strong>温度补偿建议</strong>
-            <p v-if="suggestion">{{ suggestion.advice }}；显影液用量会在保存后加一卷。</p>
+            <p v-if="suggestion">{{ suggestion.advice }}；保存后按实际卷数扣减胶片余量，显影液用量增加同样卷数。</p>
             <p v-else>请选择一条配方后查看修正建议。</p>
           </div>
           <button type="button" class="ghost-button" :disabled="!suggestion" @click="applySuggestion">采用修正时间</button>
@@ -258,6 +295,8 @@ onMounted(async () => {
             <PushPullTag v-if="recipeForRun(run.recipeId)" :value="recipeForRun(run.recipeId)?.pushPull ?? 'N'" />
           </div>
           <div class="run-parameters">
+            <span><small>乳剂批次</small><strong>{{ runEmulsionLabel(run) }}</strong></span>
+            <span><small>冲洗卷数</small><strong>{{ run.rolls }} 卷</strong></span>
             <span><small>实测温度</small><strong>{{ run.actualTempC }}°C</strong></span>
             <span><small>实际时间</small><strong>{{ run.actualMinutes }} 分钟</strong></span>
             <span><small>罐型</small><strong>{{ run.tankType }}</strong></span>
