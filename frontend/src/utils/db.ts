@@ -36,13 +36,13 @@ const recipeSeeds: DevRecipe[] = [
 ]
 
 const runSeeds: DevRun[] = [
-  { id: 1, batchNo: 'R-260918-01', recipeId: 1, actualTempC: 20.2, actualMinutes: 9.4, tankType: '双联罐', runDate: '2026-09-18', result: '密度均匀，中间调细腻', schemaRev: 2 },
-  { id: 2, batchNo: 'R-260920-02', recipeId: 2, actualTempC: 20.5, actualMinutes: 7.2, tankType: '双联罐', runDate: '2026-09-20', result: '暗部略薄，高光可控', schemaRev: 2 },
-  { id: 3, batchNo: 'R-260921-03', recipeId: 3, actualTempC: 38.1, actualMinutes: 3.25, tankType: '深罐', runDate: '2026-09-21', result: '肤色自然，灰雾轻微', schemaRev: 2 },
-  { id: 4, batchNo: 'R-260922-04', recipeId: 4, actualTempC: 19.8, actualMinutes: 11.2, tankType: '双联罐', runDate: '2026-09-22', result: '反差合适，边缘密度偏高', schemaRev: 2 },
-  { id: 5, batchNo: 'R-260923-05', recipeId: 5, actualTempC: 24.2, actualMinutes: 6.4, tankType: '深罐', runDate: '2026-09-23', result: '高光保留，暗部通透', schemaRev: 2 },
-  { id: 6, batchNo: 'R-260924-06', recipeId: 6, actualTempC: 19.5, actualMinutes: 13.2, tankType: '双联罐', runDate: '2026-09-24', result: '反差稍强，颗粒可接受', schemaRev: 2 },
-  { id: 7, batchNo: 'R-260925-07', recipeId: 7, actualTempC: 20.1, actualMinutes: 12.8, tankType: '双联罐', runDate: '2026-09-25', result: '阴影细节不足，建议延长 0.5 分钟', schemaRev: 2 }
+  { id: 1, batchNo: 'R-260918-01', recipeId: 1, filmId: 1, rollCount: 1, actualTempC: 20.2, actualMinutes: 9.4, tankType: '双联罐', runDate: '2026-09-18', result: '密度均匀，中间调细腻', schemaRev: 3 },
+  { id: 2, batchNo: 'R-260920-02', recipeId: 2, filmId: 2, rollCount: 1, actualTempC: 20.5, actualMinutes: 7.2, tankType: '双联罐', runDate: '2026-09-20', result: '暗部略薄，高光可控', schemaRev: 3 },
+  { id: 3, batchNo: 'R-260921-03', recipeId: 3, filmId: 3, rollCount: 1, actualTempC: 38.1, actualMinutes: 3.25, tankType: '深罐', runDate: '2026-09-21', result: '肤色自然，灰雾轻微', schemaRev: 3 },
+  { id: 4, batchNo: 'R-260922-04', recipeId: 4, filmId: 4, rollCount: 1, actualTempC: 19.8, actualMinutes: 11.2, tankType: '双联罐', runDate: '2026-09-22', result: '反差合适，边缘密度偏高', schemaRev: 3 },
+  { id: 5, batchNo: 'R-260923-05', recipeId: 5, filmId: 5, rollCount: 1, actualTempC: 24.2, actualMinutes: 6.4, tankType: '深罐', runDate: '2026-09-23', result: '高光保留，暗部通透', schemaRev: 3 },
+  { id: 6, batchNo: 'R-260924-06', recipeId: 6, filmId: 1, rollCount: 1, actualTempC: 19.5, actualMinutes: 13.2, tankType: '双联罐', runDate: '2026-09-24', result: '反差稍强，颗粒可接受', schemaRev: 3 },
+  { id: 7, batchNo: 'R-260925-07', recipeId: 7, filmId: 2, rollCount: 1, actualTempC: 20.1, actualMinutes: 12.8, tankType: '双联罐', runDate: '2026-09-25', result: '阴影细节不足，建议延长 0.5 分钟', schemaRev: 3 }
 ]
 
 export class FilmDevDatabase extends Dexie {
@@ -76,6 +76,21 @@ export class FilmDevDatabase extends Dexie {
       })
       await transaction.table('runs').toCollection().modify((run: DevRun) => {
         run.schemaRev = 2
+      })
+    })
+    this.version(3).stores({
+      films: '++id, model, format, expireDate, rollsLeft',
+      developers: '++id, category, state, mixedAt',
+      recipes: '++id, filmId, developerId, dilution, pushPull, tempC',
+      runs: '++id, recipeId, filmId, batchNo, runDate, tankType'
+    }).upgrade(async (transaction) => {
+      const recipeTable = transaction.table<DevRecipe, number>('recipes')
+      const recipes = await recipeTable.toArray()
+      const recipeFilmMap = new Map(recipes.map((recipe) => [recipe.id, recipe.filmId]))
+      await transaction.table<DevRun, number>('runs').toCollection().modify((run) => {
+        run.filmId = run.filmId ?? recipeFilmMap.get(run.recipeId) ?? 0
+        run.rollCount = run.rollCount ?? 1
+        run.schemaRev = 3
       })
     })
   }

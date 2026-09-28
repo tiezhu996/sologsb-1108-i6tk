@@ -983,6 +983,25 @@ td em {
   font-size: 11px;
 }
 
+.stock-check-callout {
+  padding: 12px;
+  border: 1px solid #e2cfa6;
+  border-radius: 11px;
+  color: #6a5223;
+  background: #fbf5e8;
+}
+
+.stock-check-callout strong {
+  font-size: 13px;
+}
+
+.stock-check-callout p {
+  margin: 3px 0 0;
+  color: #7d6a42;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
 .footer {
   display: flex;
   justify-content: space-between;

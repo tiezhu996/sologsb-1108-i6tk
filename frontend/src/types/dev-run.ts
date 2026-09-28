@@ -4,6 +4,8 @@ export interface DevRun {
   id?: number
   batchNo: string
   recipeId: number
+  filmId: number
+  rollCount: number
   actualTempC: number
   actualMinutes: number
   tankType: TankType
